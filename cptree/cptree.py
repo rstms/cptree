@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Generator
 
@@ -57,22 +58,25 @@ def verify_directory(target, src=False, dst=False, ask_create=False, force_creat
 
 
 class LineWatcher(StreamWatcher):
-    def __init__(self, file_callback, progress_callback):
+    def __init__(self, file_callback, progress_callback, line_callback):
         self.index = 0
-        self.file_pattern = re.compile(r"^~([0-9,]+) (.*)")
+        self.file_pattern = re.compile(r"^~([^\s]+)\s([0-9,]+)\s(.*)")
         self.percent_pattern = re.compile(r"^\s*([^\s]+)\s+([0-9\.]+)%")
         self.file_callback = file_callback
         self.progress_callback = progress_callback
+        self.line_callback = line_callback
         self.file_count = 0
         self.byte_count = 0
         super().__init__()
 
     def parse_line(self, line):
+        if self.line_callback:
+            return self.line_callback(line)
         file = self.file_pattern.match(line)
         if file:
-            length, filename = file.groups()
+            codes, length, filename = file.groups()
             self.file_count += 1
-            return self.file_callback(filename, self.file_count, int(length.replace(",", "")))
+            return self.file_callback(filename, self.file_count, int(length.replace(",", "")), codes)
         percent = self.percent_pattern.match(line)
         if percent:
             length, progress = percent.groups()
@@ -113,8 +117,12 @@ def mkopts(kwargs):
 
 def prescan(src, dst, opts):
     click.echo("Scanning...\r", nl=False)
-    scanproc = run(f"rsync -a --list-only {opts} {src} {dst}", hide="both")
-    items = scanproc.stdout.strip().split("\n")
+    scanproc = run(f"rsync -a --list-only {opts} {src} {dst}", hide="both", warn=True)
+    if scanproc.ok:
+        items = scanproc.stdout.strip().split("\n")
+    else:
+        click.echo(scanproc.stderr, err=True)
+        sys.exit(scanproc.return_code)
     counts = {
         "d": 0,
         "-": 0,
@@ -133,6 +141,7 @@ def prescan(src, dst, opts):
     }
 
     size = 0
+    files = []
     for item in items:
         fields = item.split()
         if len(fields) < 5:
@@ -143,6 +152,8 @@ def prescan(src, dst, opts):
         size += int(length)
         file_type = item[0]
         counts[file_type] += 1
+        if file_type == "-":
+            files.append(fields[4])
 
     msg = f"Transferring {humanize.naturalsize(size, gnu=True)}"
     for k, v in counts.items():
@@ -151,31 +162,43 @@ def prescan(src, dst, opts):
     click.echo(msg)
     if (counts["b"] + counts["c"]) > 0:
         click.confirm("Attempting transfer of device nodes.  Are you certain you know what you're doing?", abort=True)
-    return size, len(items)
+
+    return size, len(items), files
 
 
-def cptree(src, dst, ask_create=True, force_create=False, ascii=False, **kwargs):
+def cptree(src, dst, ask_create=True, force_create=False, ascii=False, rsync_options=None, disable=False):
 
     verify_directory(src, src=True)
     verify_directory(dst, dst=True, ask_create=ask_create, force_create=force_create)
 
-    opts = mkopts(kwargs)
+    if rsync_options:
+        opts = " ".join(rsync_options)
+    else:
+        opts = ""
 
-    bytes, files = prescan(src, dst, opts)
+    bytes, items, files = prescan(src, dst, opts)
 
-    bar = tqdm(total=bytes, unit="B", unit_scale=True, ascii=ascii)
+    bar = tqdm(total=bytes, unit="B", unit_scale=True, ascii=ascii, disable=disable)
 
-    def file_callback(filename, count, length):
+    def line_callback(line):
+        click.echo(line)
+
+    def file_callback(filename, count, length, codes):
         bar.set_description(f"[{count}/{files}]", refresh=False)
 
     def progress_callback(chunk, progress):
         bar.update(chunk)
 
-    cmd = f"rsync -avzii --info PROGRESS2 --out-format '~%l %f' {opts} {src} {dst}"
+    if disable:
+        progress_opts = ""
+    else:
+        progress_opts = "-ii --info PROGRESS2 --out-format '~%i %l %f'"
+
+    cmd = f"rsync -avz {progress_opts} {opts} {src} {dst}"
 
     proc = run(
         cmd,
-        watchers=[LineWatcher(file_callback, progress_callback)],
+        watchers=[LineWatcher(file_callback, progress_callback, line_callback if disable else None)],
         in_stream=None,
         hide="both",
         warn=True,
@@ -186,5 +209,10 @@ def cptree(src, dst, ask_create=True, force_create=False, ascii=False, **kwargs)
     for error in proc.stderr.strip().split("\n"):
         if error:
             click.echo(error, err=True)
+
+    src_sums = checksum(src, files)
+    dst_sums = checksum(dst, files)
+    if compare_checksums(src_sums, dst_sums)
+        return -1
 
     return proc.return_code

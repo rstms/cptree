@@ -18,7 +18,7 @@ def _ehandler(ctx, option, debug):
     ctx.obj["debug"] = debug
 
 
-@click.command("cptree", context_settings={"auto_envvar_prefix": "CPTREE"})
+@click.command("cptree", context_settings={"auto_envvar_prefix": "CPTREE", "ignore_unknown_options": True})
 @click.version_option(message=header)
 @click.option("-d", "--debug", is_eager=True, is_flag=True, callback=_ehandler, help="debug mode")
 @click.option(
@@ -34,12 +34,21 @@ def _ehandler(ctx, option, debug):
 @click.option(
     "--force-create/--no-force-create", is_flag=True, help="create missing destination directory without prompting"
 )
+@click.option("--progress-bar", "--no-progress-bar", is_flag=True, default=True, help="progress bar switch")
 @click.argument("SRC")
 @click.argument("DST")
+@click.argument("RSYNC_OPTIONS", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
-def cli(ctx, debug, shell_completion, src, dst, ask_create, force_create):
+def cli(ctx, debug, shell_completion, ask_create, force_create, progress_bar, src, dst, rsync_options):
     """rsync transfer with progress indicator and checksum verification"""
-    return cptree(src, dst, ask_create=ask_create, force_create=force_create)
+    return cptree(
+        src,
+        dst,
+        ask_create=ask_create,
+        force_create=force_create,
+        rsync_options=rsync_options,
+        disable=not progress_bar,
+    )
 
 
 if __name__ == "__main__":
