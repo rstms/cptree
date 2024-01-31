@@ -23,7 +23,9 @@ dynamic = ["description"]
 
 dependencies = [
   "click",
-  "fabric"
+  "fabric",
+  "humanize",
+  "tqdm"
 ]
 
 [tool.flit.module]

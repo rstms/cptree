@@ -31,12 +31,15 @@ def _ehandler(ctx, option, debug):
 @click.option(
     "--ask-create/--no-ask-create", is_flag=True, default=True, help="prompt to create missing destination directory"
 )
+@click.option(
+    "--force-create/--no-force-create", is_flag=True, help="create missing destination directory without prompting"
+)
 @click.argument("SRC")
 @click.argument("DST")
 @click.pass_context
-def cli(ctx, debug, shell_completion, src, dst, ask_create):
-    """cptree top-level help"""
-    return cptree(src, dst, ask_create)
+def cli(ctx, debug, shell_completion, src, dst, ask_create, force_create):
+    """rsync transfer with progress indicator and checksum verification"""
+    return cptree(src, dst, ask_create=ask_create, force_create=force_create)
 
 
 if __name__ == "__main__":
