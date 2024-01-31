@@ -33,7 +33,7 @@ def exception_handler(
         )
 
     elif not logger:
-        print(error_msg, file=sys.stderr, end="\n", flush=True)
+        print(f"{exception.__class__.__name__}: {str(exception)}", file=sys.stderr, end="\n", flush=True)
 
     sys.exit(-1)
 

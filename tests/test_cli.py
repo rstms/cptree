@@ -46,8 +46,8 @@ def run():
 
 
 def test_cli_no_args(run):
-    result = run([])
-    assert "Usage:" in result.output
+    with pytest.raises(SystemExit):
+        run([])
 
 
 def test_cli_help(run):

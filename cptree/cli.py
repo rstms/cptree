@@ -1,11 +1,11 @@
 """Console script for cptree."""
 
 import sys
-from pathlib import Path
 
 import click
 import click.core
 
+from .cptree import cptree
 from .exception_handler import ExceptionHandler
 from .shell import _shell_completion
 from .version import __timestamp__, __version__
@@ -18,18 +18,7 @@ def _ehandler(ctx, option, debug):
     ctx.obj["debug"] = debug
 
 
-def verify_directory(target, src=False, dst=False):
-    remote = ":" in target
-    host = None
-    if remote:
-        raise RuntimeError("remote src/dst unimplemented")
-    elif not Path(target).is_dir():
-        raise RuntimeError(f"{target} is not a directory")
-
-    return target, remote, host
-
-
-@click.group("cptree", context_settings={"auto_envvar_prefix": "CPTREE"})
+@click.command("cptree", context_settings={"auto_envvar_prefix": "CPTREE"})
 @click.version_option(message=header)
 @click.option("-d", "--debug", is_eager=True, is_flag=True, callback=_ehandler, help="debug mode")
 @click.option(
@@ -39,16 +28,15 @@ def verify_directory(target, src=False, dst=False):
     callback=_shell_completion,
     help="configure shell completion",
 )
+@click.option(
+    "--ask-create/--no-ask-create", is_flag=True, default=True, help="prompt to create missing destination directory"
+)
 @click.argument("SRC")
 @click.argument("DST")
 @click.pass_context
-def cli(ctx, debug, shell_completion, src, dst):
+def cli(ctx, debug, shell_completion, src, dst, ask_create):
     """cptree top-level help"""
-    remote_src = ":" in src
-    remote_dst = ":" in dst
-    src, remote_src, src_host = verify_directory(src, src=True)
-    dst, remote_dst, dst_host = verify_directory(dst, dst=True)
-    click.echo("rsync {src} {dst}")
+    return cptree(src, dst, ask_create)
 
 
 if __name__ == "__main__":
