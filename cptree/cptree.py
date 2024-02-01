@@ -166,7 +166,44 @@ def prescan(src, dst, opts):
     return size, len(items), files
 
 
-def cptree(src, dst, ask_create=True, force_create=False, ascii=False, rsync_options=None, disable=False):
+def checksum(target, file_list, output):
+    """read pathnames from file_list, performing hash on target writing to output Path"""
+
+    infile = Path(file_list)
+    outfile = Path(output)
+
+    remote, target, host = split_target(target)
+
+    with infile.open('r') as ifp:
+        with outfile.open('w') as ofp:
+
+        if remote: 
+            raise NotImplementedError
+        else:
+            proc = run(cmd, in_path = ifp, out_path=ofp)
+
+    return outfile
+        
+
+def compare_checksums(src_sums, dst_sums):
+    breakpoint()
+    return True
+
+def cptree(*args, work_dir=None, **kwargs):
+    """call _cptree with work_dir from argument or a temp dir"""
+
+    if work_dir is not None:
+        work_dir = Path(work_dir)
+        if work_dir.is_dir():
+            return _cptree(*args, work_dir=work_dir, **kwargs)
+        else:
+            raise InvalidDirectory(work_dir)
+
+    with TemporaryDirectory() as temp_dir:
+        return _cptree(*args, work_dir=Path(temp_dir), **kwargs)
+
+
+def _cptree(src, dst, *, ask_create=True, force_create=False, ascii=False, rsync_options=None, disable=False, work_dir=None):
 
     verify_directory(src, src=True)
     verify_directory(dst, dst=True, ask_create=ask_create, force_create=force_create)
@@ -177,6 +214,9 @@ def cptree(src, dst, ask_create=True, force_create=False, ascii=False, rsync_opt
         opts = ""
 
     bytes, items, files = prescan(src, dst, opts)
+
+    file_list = work_dir / 'file_list'
+    file_list.write_text('\n'.join(files))
 
     bar = tqdm(total=bytes, unit="B", unit_scale=True, ascii=ascii, disable=disable)
 
@@ -210,9 +250,9 @@ def cptree(src, dst, ask_create=True, force_create=False, ascii=False, rsync_opt
         if error:
             click.echo(error, err=True)
 
-    src_sums = checksum(src, files)
-    dst_sums = checksum(dst, files)
-    if compare_checksums(src_sums, dst_sums)
-        return -1
+    src_sums = checksum(src, file_list, work_dir / 'src.sha256')
+    dst_sums = checksum(dst, file_list, work_dir / 'dst.sha256')
+
+    compare_checksums(src_sums, dst_sums)
 
     return proc.return_code

@@ -33,6 +33,7 @@ name = "cptree"
 
 [project.optional-dependencies]
 dev = [
+  "aider",
   "black",
   "bump2version",
   "coverage",
@@ -42,6 +43,7 @@ dev = [
   "flake8-length",
   "pdbpp",
   "pytest",
+  "pytest-datadir",
   "python-box",
   "toml",
   "tox"

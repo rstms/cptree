@@ -120,3 +120,5 @@ docker/.build
 docker/*.whl
 postactivate
 notes
+.aider*
+tests/data/*

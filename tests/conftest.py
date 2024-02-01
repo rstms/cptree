@@ -1,7 +1,6 @@
 # global test config
 
 import os
-from pathlib import Path
 
 import pytest
 
@@ -18,7 +17,7 @@ def remote_user():
 
 @pytest.fixture
 def local_src():
-    return str(Path(".") / "cptree")
+    return "tests/data/src"
 
 
 @pytest.fixture
