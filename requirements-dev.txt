@@ -1,3 +1,4 @@
+aider
 black
 bump2version
 coverage
@@ -7,6 +8,7 @@ flake8
 flake8-length
 pdbpp
 pytest
+pytest-datadir
 python-box
 toml
 tox
