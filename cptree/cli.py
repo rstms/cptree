@@ -18,9 +18,21 @@ def _ehandler(ctx, option, debug):
     ctx.obj["debug"] = debug
 
 
-@click.command("cptree", context_settings={"auto_envvar_prefix": "CPTREE", "ignore_unknown_options": True})
+FLAG_CHOICES = ["ask", "force", "never"]
+HASH_CHOICES = ["md5", "sha1", "sha256", "none"]
+PROGRESS_CHOICES = ["enable", "ascii", "none"]
+
+
+@click.command("cptree", context_settings={"auto_envvar_prefix": "CPTREE"})
 @click.version_option(message=header)
-@click.option("-d", "--debug", is_eager=True, is_flag=True, callback=_ehandler, help="debug mode")
+@click.option(
+    "-d",
+    "--debug",
+    is_eager=True,
+    is_flag=True,
+    callback=_ehandler,
+    help="debug mode",
+)
 @click.option(
     "--shell-completion",
     is_flag=False,
@@ -29,25 +41,84 @@ def _ehandler(ctx, option, debug):
     help="configure shell completion",
 )
 @click.option(
-    "--ask-create/--no-ask-create", is_flag=True, default=True, help="prompt to create missing destination directory"
+    "-c",
+    "--create",
+    type=click.Choice(FLAG_CHOICES),
+    default="ask",
+    help="create DST if nonexistent",
 )
 @click.option(
-    "--force-create/--no-force-create", is_flag=True, help="create missing destination directory without prompting"
+    "-D",
+    "--delete",
+    type=click.Choice(FLAG_CHOICES),
+    default="never",
+    help="delete DST contents before transfer",
 )
-@click.option("--progress-bar", "--no-progress-bar", is_flag=True, default=True, help="progress bar switch")
+@click.option(
+    "-p",
+    "--progress",
+    type=click.Choice(PROGRESS_CHOICES),
+    default="enable",
+    help="animated transfer progress",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(file_okay=False, writable=True),
+    help="checksum output dir",
+)
+@click.option(
+    "-h",
+    "--hash",
+    type=click.Choice(HASH_CHOICES),
+    default="sha1",
+    help="select checksum hash",
+)
+@click.option(
+    "-r/-R",
+    "--rsync/--no-rsync",
+    is_flag=True,
+    default=True,
+    help="enable/disable rsync transfer",
+)
+@click.option("-a", "--rsync-args", help="rsync pass-through arguments")
 @click.argument("SRC")
 @click.argument("DST")
-@click.argument("RSYNC_OPTIONS", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
-def cli(ctx, debug, shell_completion, ask_create, force_create, progress_bar, src, dst, rsync_options):
+def cli(
+    ctx,
+    debug,
+    shell_completion,
+    create,
+    delete,
+    progress,
+    output,
+    hash,
+    rsync,
+    rsync_args,
+    src,
+    dst,
+):
     """rsync transfer with progress indicator and checksum verification"""
+    if create == "never":
+        create = False
+    if delete == "never":
+        delete = False
+    if hash == "none":
+        hash = None
+    if progress == "none":
+        progress = None
+
     return cptree(
         src,
         dst,
-        ask_create=ask_create,
-        force_create=force_create,
-        rsync_options=rsync_options,
-        disable=not progress_bar,
+        create=create,
+        delete=delete,
+        progress=progress,
+        output_dir=output,
+        hash=hash,
+        rsync=rsync,
+        rsync_args=rsync_args,
     )
 
 

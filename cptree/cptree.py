@@ -1,60 +1,20 @@
 # cptree implementation
 
-import os
 import re
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Generator
 
 import click
 import humanize
-from fabric import Connection
 from invoke import run
 from invoke.watchers import StreamWatcher
 from tqdm import tqdm
 
-from .exceptions import InvalidDirectory
-
-
-def split_target(target):
-    host, _, path = target.partition(":")
-    if path:
-        return True, path, host
-    else:
-        return False, target, None
-
-
-def verify_remote_directory(host, target, src, dst, ask_create=False, force_create=False):
-    result = Connection(host).run(f"[ -d {target} ]", warn=True)
-    if not result.ok:
-        if dst:
-            if force_create or (
-                ask_create and click.confirm(f"{target} does not exist on {host}. Create it?", abort=True)
-            ):
-                Connection(host).run(f"mkdir -p {target}")
-        else:
-            raise InvalidDirectory(f"{host}:{target}")
-
-
-def verify_directory(target, src=False, dst=False, ask_create=False, force_create=False):
-    if src:
-        dst = False
-    elif dst:
-        src = False
-    else:
-        raise RuntimeError
-
-    remote, target, host = split_target(target)
-    if remote:
-        verify_remote_directory(host, target, src, dst, ask_create=ask_create, force_create=force_create)
-    else:
-        target = Path(os.path.expanduser(target)).resolve()
-        if target.exists() is False:
-            if dst:
-                if force_create or (ask_create and click.confirm(f"{target} does not exist. Create it?", abort=True)):
-                    target.mkdir()
-            if target.is_dir() is False:
-                raise InvalidDirectory(str(target))
+from .checksum import compare_checksums, dst_checksum, src_checksum
+from .utils import parse_int
+from .verify import verify_dst_directory, verify_output_directory, verify_src_directory
 
 
 class LineWatcher(StreamWatcher):
@@ -76,11 +36,11 @@ class LineWatcher(StreamWatcher):
         if file:
             codes, length, filename = file.groups()
             self.file_count += 1
-            return self.file_callback(filename, self.file_count, int(length.replace(",", "")), codes)
+            return self.file_callback(filename, self.file_count, parse_int(length), codes)
         percent = self.percent_pattern.match(line)
         if percent:
             length, progress = percent.groups()
-            length = int(length.replace(",", ""))
+            length = parse_int(length)
             chunk = length - self.byte_count
             self.byte_count = length
             return self.progress_callback(chunk, progress)
@@ -117,7 +77,7 @@ def mkopts(kwargs):
 
 def prescan(src, dst, opts):
     click.echo("Scanning...\r", nl=False)
-    scanproc = run(f"rsync -a --list-only {opts} {src} {dst}", hide="both", warn=True)
+    scanproc = run(f"rsync -a --list-only {opts} {src} {dst}", hide=True, warn=True)
     if scanproc.ok:
         items = scanproc.stdout.strip().split("\n")
     else:
@@ -146,9 +106,7 @@ def prescan(src, dst, opts):
         fields = item.split()
         if len(fields) < 5:
             raise RuntimeError
-        length = fields[1]
-        if "," in length:
-            length = length.replace(",", "")
+        length = parse_int(fields[1])
         size += int(length)
         file_type = item[0]
         counts[file_type] += 1
@@ -161,98 +119,100 @@ def prescan(src, dst, opts):
             msg += f" {names[k]}={v}"
     click.echo(msg)
     if (counts["b"] + counts["c"]) > 0:
-        click.confirm("Attempting transfer of device nodes.  Are you certain you know what you're doing?", abort=True)
+        click.confirm(
+            "Attempting transfer of device nodes.  Are you certain you know what you're doing?",
+            abort=True,
+        )
 
     return size, len(items), files
 
 
-def checksum(target, file_list, output):
-    """read pathnames from file_list, performing hash on target writing to output Path"""
-
-    infile = Path(file_list)
-    outfile = Path(output)
-
-    remote, target, host = split_target(target)
-
-    with infile.open('r') as ifp:
-        with outfile.open('w') as ofp:
-
-        if remote: 
-            raise NotImplementedError
-        else:
-            proc = run(cmd, in_path = ifp, out_path=ofp)
-
-    return outfile
-        
-
-def compare_checksums(src_sums, dst_sums):
-    breakpoint()
-    return True
-
-def cptree(*args, work_dir=None, **kwargs):
+def cptree(*args, output_dir=None, **kwargs):
     """call _cptree with work_dir from argument or a temp dir"""
 
-    if work_dir is not None:
-        work_dir = Path(work_dir)
-        if work_dir.is_dir():
-            return _cptree(*args, work_dir=work_dir, **kwargs)
-        else:
-            raise InvalidDirectory(work_dir)
-
-    with TemporaryDirectory() as temp_dir:
-        return _cptree(*args, work_dir=Path(temp_dir), **kwargs)
-
-
-def _cptree(src, dst, *, ask_create=True, force_create=False, ascii=False, rsync_options=None, disable=False, work_dir=None):
-
-    verify_directory(src, src=True)
-    verify_directory(dst, dst=True, ask_create=ask_create, force_create=force_create)
-
-    if rsync_options:
-        opts = " ".join(rsync_options)
+    if output_dir:
+        kwargs["output_dir"] = Path(output_dir)
+        return _cptree(*args, **kwargs)
     else:
-        opts = ""
+        with TemporaryDirectory() as temp_dir:
+            kwargs["output_dir"] = Path(temp_dir)
+            return _cptree(*args, **kwargs)
 
-    bytes, items, files = prescan(src, dst, opts)
 
-    file_list = work_dir / 'file_list'
-    file_list.write_text('\n'.join(files))
+def _cptree(
+    src,
+    dst,
+    *,
+    create=None,
+    delete=None,
+    progress=True,
+    output_dir=None,
+    hash=None,
+    rsync=True,
+    rsync_args=None,
+):
 
-    bar = tqdm(total=bytes, unit="B", unit_scale=True, ascii=ascii, disable=disable)
+    verify_output_directory(output_dir)
+    verify_src_directory(src)
+    verify_dst_directory(dst, create, delete)
+
+    if rsync_args is None:
+        rsync_args = ""
+
+    bytes, items, files = prescan(src, dst, rsync_args)
+
+    file_list = output_dir / "file_list"
+    file_list.write_text("\n".join(files))
+
+    bar = tqdm(
+        total=bytes,
+        unit="B",
+        unit_scale=True,
+        miniters=1,
+        delay=1,
+        ascii=progress == "ascii",
+        disable=progress in ["disable", False, None],
+    )
 
     def line_callback(line):
         click.echo(line)
 
     def file_callback(filename, count, length, codes):
-        bar.set_description(f"[{count}/{files}]", refresh=False)
+        bar.set_description(f"[{count}/{items}]", refresh=False)
 
     def progress_callback(chunk, progress):
         bar.update(chunk)
 
-    if disable:
-        progress_opts = ""
-    else:
+    if progress:
         progress_opts = "-ii --info PROGRESS2 --out-format '~%i %l %f'"
+        watcher = LineWatcher(file_callback, progress_callback, None)
+    else:
+        progress_opts = ""
+        watcher = LineWatcher(None, None, line_callback)
 
-    cmd = f"rsync -avz {progress_opts} {opts} {src} {dst}"
+    cmd = f"rsync -avz {progress_opts} {rsync_args} {src} {dst}"
 
-    proc = run(
-        cmd,
-        watchers=[LineWatcher(file_callback, progress_callback, line_callback if disable else None)],
-        in_stream=None,
-        hide="both",
-        warn=True,
-    )
+    if rsync:
+        click.echo(cmd)
+        proc = run(
+            cmd,
+            watchers=[watcher],
+            in_stream=None,
+            hide=True,
+            warn=True,
+        )
+        rsync_stderr = proc.stderr.strip().split("\n")
+    else:
+        rsync_stderr = []
 
     bar.close()
 
-    for error in proc.stderr.strip().split("\n"):
-        if error:
-            click.echo(error, err=True)
+    for error in rsync_stderr:
+        click.echo(error, err=True)
 
-    src_sums = checksum(src, file_list, work_dir / 'src.sha256')
-    dst_sums = checksum(dst, file_list, work_dir / 'dst.sha256')
-
-    compare_checksums(src_sums, dst_sums)
+    if hash:
+        src_sums = src_checksum(src, dst, file_list, hash, output_dir / f"src.{hash}")
+        dst_sums = dst_checksum(src, dst, file_list, hash, output_dir / f"dst.{hash}")
+        compare_checksums(src_sums, dst_sums)
 
     return proc.return_code

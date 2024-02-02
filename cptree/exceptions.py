@@ -7,3 +7,7 @@ class Fail(Exception):
 
 class InvalidDirectory(Fail):
     pass
+
+
+class ChecksumCompareFailed(Fail):
+    pass

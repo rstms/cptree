@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+
+import shutil
+from pathlib import Path
+
+from invoke import run
+from tqdm import tqdm
+
+# tests/data
+shutil.rmtree('tests/data')
+Path('tests/data').mkdir()
+
+# tests/data/src
+print('tests/data/src')
+run('cd tests/data; gh release download v0.0.3 --archive tar.gz --output - | tar zx')
+Path('tests/data/cptree-0.0.3').rename('tests/data/src')
+
+# tests/data/dst
+Path('tests/data/dst').mkdir()
+
+# tests/data/output/file_list
+Path('tests/data/output').mkdir()
+proc = run('find tests/data/src -type f', hide=True)
+paths = proc.stdout.strip().split('\n')
+
+files = sorted([ str(Path(path).relative_to('tests/data/src')) for path in paths ])
+
+file_list = Path('tests/data/output/file_list')
+file_list.write_text('\n'.join(files))
+
+for hash in ['md5', 'sha1', 'sha256']:
+    sumfile = Path('tests/data/output') / f"reference.{hash}"
+    print(str(sumfile))
+    sums = []
+    for file in tqdm(files):
+        proc = run(f"cd tests/data/src; {hash}sum --binary --tag {file}", hide=True)
+        sums.append(proc.stdout.strip())
+
+    sumfile.write_text('\n'.join(sums)+'\n')
+
+# $(foreach hash,md5 sha1 sha256,$(TESTDATA_OUTPUT)/reference.$(hash))
+# cat $< | (cd tests/data/src; xargs -n 1 $(hash)sum --binary --tag) | sort >tests/data/output/reference.$(hash);)

@@ -16,6 +16,11 @@ def remote_user():
 
 
 @pytest.fixture
+def remote_dir():
+    return os.environ["TEST_REMOTE_DIR"]
+
+
+@pytest.fixture
 def local_src():
     return "tests/data/src"
 
@@ -26,5 +31,15 @@ def local_dst():
 
 
 @pytest.fixture
-def remote_target(remote_user, remote_host):
-    return f"{remote_user}@{remote_host}:cptree_test"
+def remote_src(remote_user, remote_host, remote_dir):
+    return f"{remote_user}@{remote_host}:{remote_dir}/src/"
+
+
+@pytest.fixture
+def remote_dst(remote_user, remote_host, remote_dir):
+    return f"{remote_user}@{remote_host}:{remote_dir}/dst"
+
+
+@pytest.fixture
+def big_local_src():
+    return os.environ["TEST_BIG_SRC"]
