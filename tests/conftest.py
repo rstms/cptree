@@ -1,6 +1,7 @@
 # global test config
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -21,13 +22,18 @@ def remote_dir():
 
 
 @pytest.fixture
-def local_src():
-    return "tests/data/src"
+def test_datadir():
+    return Path(os.environ["TEST_DATA_DIR"])
 
 
 @pytest.fixture
-def local_dst():
-    return "tests/data/dst"
+def local_src(test_datadir):
+    return test_datadir / "src/"
+
+
+@pytest.fixture
+def local_dst(test_datadir):
+    return test_datadir / "dst"
 
 
 @pytest.fixture

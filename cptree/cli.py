@@ -7,6 +7,7 @@ import click.core
 
 from .cptree import cptree
 from .exception_handler import ExceptionHandler
+from .hash import DEFAULT_HASH, HASHES
 from .shell import _shell_completion
 from .version import __timestamp__, __version__
 
@@ -19,7 +20,7 @@ def _ehandler(ctx, option, debug):
 
 
 FLAG_CHOICES = ["ask", "force", "never"]
-HASH_CHOICES = ["md5", "sha1", "sha256", "none"]
+HASH_CHOICES = list(HASHES) + ["none"]
 PROGRESS_CHOICES = ["enable", "ascii", "none"]
 
 
@@ -71,8 +72,15 @@ PROGRESS_CHOICES = ["enable", "ascii", "none"]
     "-h",
     "--hash",
     type=click.Choice(HASH_CHOICES),
-    default="sha1",
+    default=DEFAULT_HASH,
     help="select checksum hash",
+)
+@click.option(
+    "-r/-R",
+    "--rsync/--no-rsync",
+    is_flag=True,
+    default=True,
+    help="enable/disable rsync transfer",
 )
 @click.option(
     "-r/-R",
@@ -108,6 +116,10 @@ def cli(
         hash = None
     if progress == "none":
         progress = None
+
+    if src[-1] != "/":
+        if click.confirm(f"Change source to {src + '/'} ?", default="Y"):
+            src += "/"
 
     return cptree(
         src,

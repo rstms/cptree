@@ -68,3 +68,4 @@ collect_ignore = ['setup.py']
 
 [project.scripts]
 cptree = "cptree:cli"
+hashtree = "cptree:hashtree"

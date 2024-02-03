@@ -7,8 +7,8 @@ import click
 from fabric import Connection
 from invoke import run
 
+from .common import split_target
 from .exceptions import InvalidDirectory
-from .utils import split_target
 
 
 def _verify_directory(host, target, dir_type, create=None, delete=None):

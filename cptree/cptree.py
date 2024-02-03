@@ -13,7 +13,7 @@ from invoke.watchers import StreamWatcher
 from tqdm import tqdm
 
 from .checksum import compare_checksums, dst_checksum, src_checksum
-from .utils import parse_int
+from .common import parse_int
 from .verify import verify_dst_directory, verify_output_directory, verify_src_directory
 
 
@@ -162,11 +162,11 @@ def _cptree(
     bytes, items, files = prescan(src, dst, rsync_args)
 
     file_list = output_dir / "file_list"
-    file_list.write_text("\n".join(files))
+    file_list.write_text("\n".join(["./" + f for f in files]) + "\n")
 
     bar = tqdm(
         total=bytes,
-        unit="B",
+        unit="bytes",
         unit_scale=True,
         miniters=1,
         delay=1,
