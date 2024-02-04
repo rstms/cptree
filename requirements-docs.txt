@@ -1,4 +1,4 @@
 m2r2
 sphinx
 sphinx-click
-pallets-sphinx-themes
+furo
