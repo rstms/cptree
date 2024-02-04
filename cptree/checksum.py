@@ -3,25 +3,25 @@
 from pathlib import Path
 
 import click
-
-# from fabric import Connection
+from fabric import Connection
 from invoke import run
-from tqdm import tqdm
 
 from .common import split_target
-from .exceptions import ChecksumCompareFailed
-from .hash import HashDigest
+from .exceptions import ChecksumCompareFailed, ChecksumGenerationFailed
 
 
-def src_checksum(src, dst, file_list, hash, output_filename):
-    return _checksum(True, src, dst, file_list, hash, output_filename)
+def src_checksum(src, dst, hash, output_filename, ascii=None, width=None):
+    return _checksum(True, src, dst, hash, output_filename, ascii, width)
 
 
-def dst_checksum(src, dst, file_list, hash, output_filename):
-    return _checksum(False, src, dst, file_list, hash, output_filename)
+def dst_checksum(src, dst, hash, output_filename, ascii=None, width=None):
+    return _checksum(False, src, dst, hash, output_filename, ascii, width)
 
 
-def _checksum(is_src, src, dst, file_list, hash, output_filename):  # noqa: C901
+# noqa: C901
+
+
+def _checksum(is_src, src, dst, hash, output_filename, ascii, width):
     """generate BSD-style checksum for each file in target, returning local file containing result"""
 
     if is_src:
@@ -39,28 +39,29 @@ def _checksum(is_src, src, dst, file_list, hash, output_filename):  # noqa: C901
         label = target
         target = Path(target).resolve()
 
-    # configure local or remote runner
-    if host:
-        raise NotImplementedError
-
-    infile = Path(file_list)
-    outfile = Path(output_filename)
-
     click.echo(f"Generating {mode} checksums for {label}")
 
-    with tqdm(total=infile.stat().st_size, unit="bytes", unit_scale=True) as bar:
-        hasher = HashDigest(target, hash)
-        with infile.open("r") as ifp, outfile.open("w") as ofp:
-            while True:
-                filename = ifp.readline()
-                if filename:
-                    bar.update(len(filename))
-                    digest = hasher.file_digest(filename.strip())
-                    ofp.write(digest + "\n")
-                else:
-                    break
+    if host:
+        runner = Connection(host).run
+    else:
+        runner = run
 
-    return outfile
+    options = "--progress"
+    if width:
+        options += f" --width {width}"
+    if ascii:
+        options += " --ascii"
+
+    with Path(output_filename).open("w") as ofp:
+        proc = runner(
+            f"python3 -m hashtree --find --sort-files --base-dir {target} {options}",
+            out_stream=ofp,
+            warn=True,
+        )
+        if proc.failed:
+            raise ChecksumGenerationFailed(proc.stderr)
+
+    return Path(output_filename)
 
 
 def compare_checksums(src_sums, dst_sums):

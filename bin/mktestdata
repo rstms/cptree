@@ -7,6 +7,7 @@ from pathlib import Path
 from invoke import run
 from tqdm import tqdm
 
+
 # delete test data
 datadir = Path(os.environ['TEST_DATA_DIR']).resolve()
 
@@ -46,22 +47,18 @@ output_dir = test_datadir / 'output'
 print(str(output_dir))
 output_dir.mkdir()
 
-proc = run(f'find {str(src_dir)} -type f', hide=True)
+SORT="sort $(get-default-sort-args)"
+
+proc = run(f'find {str(src_dir)} -type f | {SORT}', hide=True)
 paths = proc.stdout.strip().split('\n')
 
-files = sorted([ str(Path(path).relative_to(src_dir)) for path in paths ])
+files = [ str(Path(path).relative_to(src_dir)) for path in paths ]
 
 file_list = output_dir / 'file_list'
-file_list.write_text('\n'.join(files))
+file_list.write_text('\n'.join(files) + "\n")
 
-for hash in ['md5', 'sha1', 'sha256']:
+for hash in ['sha256']:
     sumfile = output_dir / f"reference.{hash}"
     print(str(sumfile))
-    sums = []
-    for file in tqdm(files):
-        proc = run(f"cd {str(src_dir)}; {hash}sum --binary --tag {file}", hide=True)
-        sums.append(proc.stdout.strip())
-
-    with sumfile.open('w') as ofp:
-        for sum in sorted(sums):
-            ofp.write(proc.stdout + '\n')
+    proc = run(f"cd {str(src_dir)}; find . -type f | {SORT} | xargs -n 1 {hash}sum --binary --tag")
+    sumfile.write_text(proc.stdout)

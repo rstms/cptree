@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from time import sleep
 
 import click
 from fabric import Connection
@@ -9,6 +10,8 @@ from invoke import run
 
 from .common import split_target
 from .exceptions import InvalidDirectory
+
+DELETE_COUNTDOWN = 10
 
 
 def _verify_directory(host, target, dir_type, create=None, delete=None):
@@ -18,6 +21,8 @@ def _verify_directory(host, target, dir_type, create=None, delete=None):
         runner = Connection(host).run
         if dir_type == "OUTPUT":
             raise InvalidDirectory("Unsupported: " + label)
+        if "~" in str(target):
+            raise InvalidDirectory("Illegal '~' expansion: " + label)
     else:
         if "~" in str(target):
             target = os.path.expanduser(str(target))
@@ -40,11 +45,28 @@ def _verify_directory(host, target, dir_type, create=None, delete=None):
         if (dir_type in ["DST", "OUTPUT"]) and delete in [
             "ask",
             "force",
+            "force-no-countdown",
             True,
         ]:
-            if delete == "ask":
-                click.confirm(f"Delete {label}?", abort=True)
-            runner(f"rm -rf {target}", echo=True)
+            cmd = confirm_delete(target, label, host, delete)
+            runner(cmd, echo=True)
+
+
+def confirm_delete(target, label, host, delete):
+    cmd = f"rm -rf {target}"
+    if delete == "ask":
+        click.confirm(f"Delete {label}?", abort=True)
+    if delete != "force-no-countdown":
+        delete_countdown(label, cmd, host)
+    return cmd
+
+
+def delete_countdown(msg, cmd, host):
+    click.echo(f"\nCAUTION: About to delete {msg}")
+    click.echo(f"\nExecuting '{cmd}' on {host or 'localhost'} in ", nl=False)
+    for count in range(DELETE_COUNTDOWN, 0, -1):
+        click.echo(f"{count}...", nl=False)
+        sleep(1)
 
 
 def verify_output_directory(target):

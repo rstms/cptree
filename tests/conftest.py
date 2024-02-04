@@ -48,4 +48,7 @@ def remote_dst(remote_user, remote_host, remote_dir):
 
 @pytest.fixture
 def big_local_src():
-    return os.environ["TEST_BIG_SRC"]
+    dir = str(Path(os.environ["TEST_BIG_SRC"]).resolve())
+    if dir[-1] != "/":
+        dir += "/"
+    return dir

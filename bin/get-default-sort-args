@@ -1,0 +1,3 @@
+#!/usr/bin/env python3
+from hashtree.cli import DEFAULT_SORT_ARGS
+print(DEFAULT_SORT_ARGS)

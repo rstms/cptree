@@ -1,6 +1,8 @@
 # cptree implementation
 
 import re
+import shlex
+import shutil
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,6 +16,7 @@ from tqdm import tqdm
 
 from .checksum import compare_checksums, dst_checksum, src_checksum
 from .common import parse_int
+from .exceptions import ChecksumCompareFailed, RsyncTransferFailed
 from .verify import verify_dst_directory, verify_output_directory, verify_src_directory
 
 
@@ -139,7 +142,25 @@ def cptree(*args, output_dir=None, **kwargs):
             return _cptree(*args, **kwargs)
 
 
-def _cptree(
+def _verify_dirs(src, dst, output_dir, create, delete):
+    verify_output_directory(output_dir)
+    verify_src_directory(src)
+    verify_dst_directory(dst, create, delete)
+
+
+def _rsync_echo(cmd):
+    words = shlex.split(cmd)
+    words.remove("-ii")
+    ipos = words.index("--info")
+    words.pop(ipos)
+    words.pop(ipos)
+    fpos = words.index("--out-format")
+    words.pop(fpos)
+    words.pop(fpos)
+    return " ".join(words)
+
+
+def _cptree(  # noqa: C901
     src,
     dst,
     *,
@@ -152,9 +173,7 @@ def _cptree(
     rsync_args=None,
 ):
 
-    verify_output_directory(output_dir)
-    verify_src_directory(src)
-    verify_dst_directory(dst, create, delete)
+    _verify_dirs(src, dst, output_dir, create, delete)
 
     if rsync_args is None:
         rsync_args = ""
@@ -164,14 +183,18 @@ def _cptree(
     file_list = output_dir / "file_list"
     file_list.write_text("\n".join(["./" + f for f in files]) + "\n")
 
+    ascii = bool(progress == "ascii")
+    width = shutil.get_terminal_size().columns - 1
+
     bar = tqdm(
         total=bytes,
-        unit="bytes",
+        unit="B",
         unit_scale=True,
         miniters=1,
         delay=1,
-        ascii=progress == "ascii",
-        disable=progress in ["disable", False, None],
+        ncols=width,
+        ascii=ascii,
+        disable=bool(progress in ["disable", False, None]),
     )
 
     def line_callback(line):
@@ -190,10 +213,13 @@ def _cptree(
         progress_opts = ""
         watcher = LineWatcher(None, None, line_callback)
 
-    cmd = f"rsync -avz {progress_opts} {rsync_args} {src} {dst}"
-
     if rsync:
-        click.echo(cmd)
+
+        cmd = f"rsync -avz {progress_opts} {rsync_args} {src} {dst}"
+
+        # echo the rsync command without progress data output options
+        click.echo(_rsync_echo(cmd))
+
         proc = run(
             cmd,
             watchers=[watcher],
@@ -203,16 +229,37 @@ def _cptree(
         )
         rsync_stderr = proc.stderr.strip().split("\n")
     else:
+        click.echo("Skipping rsync transfer")
         rsync_stderr = []
+        proc = None
 
     bar.close()
 
     for error in rsync_stderr:
-        click.echo(error, err=True)
+        if error.strip():
+            click.echo(error, err=True)
+
+    if proc is not None and proc.failed:
+        raise RsyncTransferFailed(f"rsync failed with error code: {proc.return_code}")
 
     if hash:
-        src_sums = src_checksum(src, dst, file_list, hash, output_dir / f"src.{hash}")
-        dst_sums = dst_checksum(src, dst, file_list, hash, output_dir / f"dst.{hash}")
-        compare_checksums(src_sums, dst_sums)
+        _verify_hashes(src, dst, hash, output_dir, ascii, width)
 
-    return proc.return_code
+    if proc is None:
+        return 0
+    else:
+        return proc.return_code
+
+
+def _verify_hashes(src, dst, hash, output_dir, ascii, width):
+    src_sums = src_checksum(src, dst, hash, output_dir / f"src.{hash}", ascii, width)
+    dst_sums = dst_checksum(src, dst, hash, output_dir / f"dst.{hash}", ascii, width)
+    compare_checksums(src_sums, dst_sums)
+    with src_sums.open("r") as sfp:
+        ssums = len(sfp.readlines())
+    with dst_sums.open("r") as dfp:
+        dsums = len(dfp.readlines())
+    if ssums == dsums:
+        click.echo(f"\nSuccessful Transfer. Verified matching {hash.upper()} hashes on {ssums} files.\n")
+    else:
+        raise ChecksumCompareFailed(f"checksum count mismatch: src={ssums} dst={dsums}")

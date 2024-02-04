@@ -11,3 +11,11 @@ class InvalidDirectory(Fail):
 
 class ChecksumCompareFailed(Fail):
     pass
+
+
+class RsyncTransferFailed(Fail):
+    pass
+
+
+class ChecksumGenerationFailed(Fail):
+    pass

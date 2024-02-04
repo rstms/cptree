@@ -123,3 +123,5 @@ notes
 .aider*
 tests/data/*
 output
+limbo
+.checksums.*

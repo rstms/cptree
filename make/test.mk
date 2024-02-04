@@ -18,7 +18,7 @@ testls:
 
 ### regression test
 test: fmt
-	$(test_env) pytest $(pytest_opts) --log-cli-level=WARNING $(test_cases)
+	$(test_env) pytest $(pytest_opts) -s --log-cli-level=WARNING $(test_cases)
 
 ### pytest with break to debugger
 debug: fmt

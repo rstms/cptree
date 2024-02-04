@@ -4,10 +4,10 @@ import sys
 
 import click
 import click.core
+from hashtree.hash import DEFAULT_HASH, HASHES
 
 from .cptree import cptree
 from .exception_handler import ExceptionHandler
-from .hash import DEFAULT_HASH, HASHES
 from .shell import _shell_completion
 from .version import __timestamp__, __version__
 
@@ -51,7 +51,7 @@ PROGRESS_CHOICES = ["enable", "ascii", "none"]
 @click.option(
     "-D",
     "--delete",
-    type=click.Choice(FLAG_CHOICES),
+    type=click.Choice(FLAG_CHOICES + ["force-no-countdown"]),
     default="never",
     help="delete DST contents before transfer",
 )
