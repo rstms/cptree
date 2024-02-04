@@ -4,6 +4,4 @@ sphinx-click
 furo
 click
 fabric
-humanize
 tqdm
-hashtree
