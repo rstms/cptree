@@ -2,3 +2,4 @@ click
 fabric
 humanize
 tqdm
+hashtree
