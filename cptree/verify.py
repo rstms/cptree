@@ -19,7 +19,7 @@ def _verify_directory(host, target, dir_type, create=None, delete=None):
     if host:
         label = f"Remote {dir_type} {host}:{target}"
         runner = Connection(host).run
-        if dir_type == "OUTPUT":
+        if dir_type == "output":
             raise InvalidDirectory("Unsupported: " + label)
         if "~" in str(target):
             raise InvalidDirectory("Illegal '~' expansion: " + label)
@@ -33,16 +33,16 @@ def _verify_directory(host, target, dir_type, create=None, delete=None):
     result = runner(f"[ -d {target} ]", warn=True, hide=True)
     if result.failed:
         # doesn't exist, check for create
-        if (dir_type in ["DST", "OUTPUT"]) and (create in ["ask", "force", True]):
+        if (dir_type in ["destination", "output"]) and (create in ["ask", "force", True]):
             if create == "ask":
                 click.confirm(f"{label} does not exist. Create it?", abort=True)
             runner(f"mkdir -p {target}", echo=True)
-        elif dir_type != "DST":
+        elif dir_type != "destination":
             # not created, all but DST must exist
             raise InvalidDirectory(label)
     else:
         # exists, check for delete request
-        if (dir_type in ["DST", "OUTPUT"]) and delete in [
+        if (dir_type in ["destination", "output"]) and delete in [
             "ask",
             "force",
             "force-no-countdown",
@@ -71,12 +71,12 @@ def delete_countdown(msg, cmd, host):
 
 def verify_output_directory(target):
     host, target = split_target(target)
-    return _verify_directory(host, target, "OUTPUT", "ask", None)
+    return _verify_directory(host, target, "output", "ask", None)
 
 
 def verify_src_directory(target):
     host, target = split_target(target)
-    return _verify_directory(host, target, "SRC", None, None)
+    return _verify_directory(host, target, "source", None, None)
 
 
 def verify_dst_directory(target, create=None, delete=None):
@@ -84,7 +84,7 @@ def verify_dst_directory(target, create=None, delete=None):
         create = None
     host, target = split_target(target)
     # verify parent of DST dir exists
-    _verify_directory(host, Path(target).parent, "DST", create, False)
+    _verify_directory(host, Path(target).parent, "destination", create, False)
     if delete:
         # delete target dir
-        _verify_directory(host, target, "DST", None, delete)
+        _verify_directory(host, target, "destination", None, delete)

@@ -1,5 +1,6 @@
 # checksum test cases
 
+import subprocess
 import sys
 
 import pytest
@@ -32,6 +33,15 @@ def output_filename(output):
 
 
 @pytest.fixture
+def count():
+    def _count(src_dir):
+        ret = int(subprocess.check_output(f"find {src_dir} -type f | wc -l", shell=True, text=True))
+        return ret
+
+    return _count
+
+
+@pytest.fixture
 def compare_checksums(output):
     def _compare_checksums(test_sums):
         reference_sums = (output / "reference").with_suffix(test_sums.suffix)
@@ -45,44 +55,24 @@ def compare_checksums(output):
     return _compare_checksums
 
 
-def test_checksum_local_src(local_src, local_dst, output, compare_checksums):
-    test_sums = src_checksum(
-        local_src,
-        local_dst,
-        HASH,
-        output / f"local_src.{HASH}",
-    )
+def test_checksum_local_src(local_src, local_dst, output, compare_checksums, count):
+    test_sums = src_checksum(local_src, local_dst, HASH, output / f"local_src.{HASH}", False, 120, count(local_src))
     assert compare_checksums(test_sums)
 
 
-def test_checksum_local_dst(local_src, local_dst, output, compare_checksums):
+def test_checksum_local_dst(local_src, local_dst, output, compare_checksums, count):
     assert cptree(str(local_src) + "/", local_dst, delete="force-no-countdown", hash=None) == 0
-    test_sums = dst_checksum(
-        local_src,
-        local_dst,
-        HASH,
-        output / f"local_dst.{HASH}",
-    )
+    test_sums = dst_checksum(local_src, local_dst, HASH, output / f"local_dst.{HASH}", False, 120, count(local_src))
     assert compare_checksums(test_sums)
 
 
-def test_checksum_remote_src(remote_src, local_src, local_dst, output, compare_checksums):
+def test_checksum_remote_src(remote_src, local_src, local_dst, output, compare_checksums, count):
     assert cptree(str(local_src) + "/", remote_src, delete="force-no-countdown", hash=None) == 0
-    test_sums = src_checksum(
-        remote_src,
-        local_dst,
-        HASH,
-        output / f"remote_src.{HASH}",
-    )
+    test_sums = src_checksum(remote_src, local_dst, HASH, output / f"remote_src.{HASH}", False, 120, count(local_src))
     assert compare_checksums(test_sums)
 
 
-def test_checksum_remote_dst(local_src, remote_dst, output, compare_checksums):
+def test_checksum_remote_dst(local_src, remote_dst, output, compare_checksums, count):
     assert cptree(str(local_src) + "/", remote_dst, delete="force-no-countdown", hash=None) == 0
-    test_sums = dst_checksum(
-        local_src,
-        remote_dst,
-        HASH,
-        output / f"remote_dst.{HASH}",
-    )
+    test_sums = dst_checksum(local_src, remote_dst, HASH, output / f"remote_dst.{HASH}", False, 120, count(local_src))
     assert compare_checksums(test_sums)

@@ -6,65 +6,16 @@ import shutil
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Generator
 
 import click
-import humanize
 from invoke import run
-from invoke.watchers import StreamWatcher
 from tqdm import tqdm
 
 from .checksum import compare_checksums, dst_checksum, src_checksum
 from .common import parse_int
 from .exceptions import ChecksumCompareFailed, RsyncTransferFailed
 from .verify import verify_dst_directory, verify_output_directory, verify_src_directory
-
-
-class LineWatcher(StreamWatcher):
-    def __init__(self, file_callback, progress_callback, line_callback):
-        self.index = 0
-        self.file_pattern = re.compile(r"^~([^\s]+)\s([0-9,]+)\s(.*)")
-        self.percent_pattern = re.compile(r"^\s*([^\s]+)\s+([0-9\.]+)%")
-        self.file_callback = file_callback
-        self.progress_callback = progress_callback
-        self.line_callback = line_callback
-        self.file_count = 0
-        self.byte_count = 0
-        super().__init__()
-
-    def parse_line(self, line):
-        if self.line_callback:
-            return self.line_callback(line)
-        file = self.file_pattern.match(line)
-        if file:
-            codes, length, filename = file.groups()
-            self.file_count += 1
-            return self.file_callback(filename, self.file_count, parse_int(length), codes)
-        percent = self.percent_pattern.match(line)
-        if percent:
-            length, progress = percent.groups()
-            length = parse_int(length)
-            chunk = length - self.byte_count
-            self.byte_count = length
-            return self.progress_callback(chunk, progress)
-
-    def submit(self, stream: str) -> Generator[str, None, None]:
-        while True:
-            try:
-                pos = stream.index("\n", self.index)
-            except ValueError:
-                try:
-                    pos = stream.index("\r", self.index)
-                except ValueError:
-                    return
-            chunk = stream[self.index : pos]  # noqa: E203
-            self.index = pos + 1
-            chunks = chunk.split("\n")
-            for chunk in chunks:
-                for line in chunk.split("\r"):
-                    if len(line):
-                        self.parse_line(line)
-        yield ""
+from .watcher import LineWatcher
 
 
 def mkopts(kwargs):
@@ -95,7 +46,7 @@ def prescan(src, dst, opts):
         "b": 0,
     }
     names = {
-        "d": "dirs",
+        "d": "directories",
         "-": "files",
         "l": "links",
         "p": "pipes",
@@ -103,12 +54,11 @@ def prescan(src, dst, opts):
         "b": "block_devs",
     }
 
+    pattern = re.compile(r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s(.*)$")
     size = 0
     files = []
     for item in items:
-        fields = item.split()
-        if len(fields) < 5:
-            raise RuntimeError
+        fields = pattern.match(item).groups()
         length = parse_int(fields[1])
         size += int(length)
         file_type = item[0]
@@ -116,11 +66,13 @@ def prescan(src, dst, opts):
         if file_type == "-":
             files.append(fields[4])
 
-    msg = f"Transferring {humanize.naturalsize(size, gnu=True)}"
+    details = []
     for k, v in counts.items():
         if v:
-            msg += f" {names[k]}={v}"
-    click.echo(msg)
+            details.append(f"{names[k]}={v}")
+
+    click.echo(f"Transferring {len(items)} items: [{', '.join(details)}]")
+
     if (counts["b"] + counts["c"]) > 0:
         click.confirm(
             "Attempting transfer of device nodes.  Are you certain you know what you're doing?",
@@ -190,8 +142,8 @@ def _cptree(  # noqa: C901
         unit="B",
         unit_scale=True,
         miniters=1,
-        delay=1,
         ncols=width,
+        delay=1,
         ascii=ascii,
         disable=bool(progress in ["disable", False, None]),
     )
@@ -241,7 +193,7 @@ def _cptree(  # noqa: C901
         raise RsyncTransferFailed(f"rsync failed with error code: {proc.return_code}")
 
     if hash:
-        _verify_hashes(src, dst, hash, output_dir, ascii, width)
+        _verify_hashes(src, dst, hash, output_dir, ascii, width, len(files))
 
     if proc is None:
         return 0
@@ -249,9 +201,9 @@ def _cptree(  # noqa: C901
         return proc.return_code
 
 
-def _verify_hashes(src, dst, hash, output_dir, ascii, width):
-    src_sums = src_checksum(src, dst, hash, output_dir / f"src.{hash}", ascii, width)
-    dst_sums = dst_checksum(src, dst, hash, output_dir / f"dst.{hash}", ascii, width)
+def _verify_hashes(src, dst, hash, output_dir, ascii, width, count):
+    src_sums = src_checksum(src, dst, hash, output_dir / f"src.{hash}", ascii, width, count)
+    dst_sums = dst_checksum(src, dst, hash, output_dir / f"dst.{hash}", ascii, width, count)
     compare_checksums(src_sums, dst_sums)
     with src_sums.open("r") as sfp:
         ssums = len(sfp.readlines())

@@ -4,7 +4,6 @@ import sys
 
 import click
 import click.core
-from hashtree.hash import DEFAULT_HASH, HASHES
 
 from .cptree import cptree
 from .exception_handler import ExceptionHandler
@@ -12,6 +11,9 @@ from .shell import _shell_completion
 from .version import __timestamp__, __version__
 
 header = f"{__name__.split('.')[0]} v{__version__} {__timestamp__}"
+
+DEFAULT_HASH = "sha256"
+HASHES = ["md5", "sha1", "sha256", "sha512"]
 
 
 def _ehandler(ctx, option, debug):
@@ -46,14 +48,14 @@ PROGRESS_CHOICES = ["enable", "ascii", "none"]
     "--create",
     type=click.Choice(FLAG_CHOICES),
     default="ask",
-    help="create DST if nonexistent",
+    help="create destination directory if nonexistent",
 )
 @click.option(
     "-D",
     "--delete",
     type=click.Choice(FLAG_CHOICES + ["force-no-countdown"]),
     default="never",
-    help="delete DST contents before transfer",
+    help="delete destination directory before transfer",
 )
 @click.option(
     "-p",

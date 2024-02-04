@@ -60,5 +60,6 @@ file_list.write_text('\n'.join(files) + "\n")
 for hash in ['sha256']:
     sumfile = output_dir / f"reference.{hash}"
     print(str(sumfile))
-    proc = run(f"cd {str(src_dir)}; find . -type f | {SORT} | xargs -n 1 {hash}sum --binary --tag")
+    cmd = f"cd {str(src_dir)}; find . -type f -exec {hash}sum --tag \x5c\x7b\x5c\x7d \x5c; | sort"
+    proc = run(cmd)
     sumfile.write_text(proc.stdout)
