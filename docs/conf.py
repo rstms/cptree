@@ -35,7 +35,6 @@ import cptree  # noqa: E402
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.viewcode",
-    "pallets_sphinx_themes",
     "sphinx_click",
 ]
 
@@ -89,7 +88,7 @@ todo_include_todos = False
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "flask"
+html_theme = "furo"
 
 # Theme options are theme-specific and customize the look and feel of a
 # theme further.  For a list of options available for each theme, see the

@@ -62,5 +62,4 @@ def test_cp_local_badremote(local_src, remote_host):
 
 
 def test_cp_progress(big_local_src, remote_dst, test_datadir):
-    breakpoint()
     cptree(big_local_src, remote_dst, create=None, delete="force", hash="sha256", output_dir=test_datadir / "output")

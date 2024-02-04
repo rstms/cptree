@@ -60,7 +60,7 @@ PROGRESS_CHOICES = ["enable", "ascii", "none"]
     "--progress",
     type=click.Choice(PROGRESS_CHOICES),
     default="enable",
-    help="animated transfer progress",
+    help="total transfer progress",
 )
 @click.option(
     "-o",
@@ -74,13 +74,6 @@ PROGRESS_CHOICES = ["enable", "ascii", "none"]
     type=click.Choice(HASH_CHOICES),
     default=DEFAULT_HASH,
     help="select checksum hash",
-)
-@click.option(
-    "-r/-R",
-    "--rsync/--no-rsync",
-    is_flag=True,
-    default=True,
-    help="enable/disable rsync transfer",
 )
 @click.option(
     "-r/-R",

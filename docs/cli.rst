@@ -1,5 +1,5 @@
-cli
-===
+Commands
+========
 
 .. toctree::
    :maxdepth: 4

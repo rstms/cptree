@@ -6,9 +6,7 @@ from tqdm import tqdm
 
 
 class ProgressReader:
-
     def __init__(self, in_stream, **kwargs):
-
         self.tqdm = None
         self.buffer = ""
         kwargs.setdefault("miniters", 1)
@@ -59,7 +57,6 @@ class ProgressReader:
 
 
 if __name__ == "__main__":
-
     import time
 
     import click

@@ -172,7 +172,6 @@ def _cptree(  # noqa: C901
     rsync=True,
     rsync_args=None,
 ):
-
     _verify_dirs(src, dst, output_dir, create, delete)
 
     if rsync_args is None:
@@ -214,7 +213,6 @@ def _cptree(  # noqa: C901
         watcher = LineWatcher(None, None, line_callback)
 
     if rsync:
-
         cmd = f"rsync -avz {progress_opts} {rsync_args} {src} {dst}"
 
         # echo the rsync command without progress data output options

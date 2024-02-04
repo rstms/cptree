@@ -1,12 +1,15 @@
 cptree
 ======
 
-rsync wrapper with total transfer progress and checksum verification
+rsync interface adding total transfer progress and redundant cryptographic hash verification
 
 ![Image](https://img.shields.io/github/license/rstms/cptree)
 ![Image](https://img.shields.io/pypi/v/cptree.svg)
 
 * Free software: MIT license
+
+
+
 ```
 Usage: cptree [OPTIONS] SRC DST
 
