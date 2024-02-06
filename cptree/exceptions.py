@@ -19,3 +19,15 @@ class RsyncTransferFailed(Fail):
 
 class ChecksumGenerationFailed(Fail):
     pass
+
+
+class CommandNotFound(Fail):
+    pass
+
+
+class UnsupportedRsyncArgument(Fail):
+    pass
+
+
+class UnrecognizedRsyncPrescanOutput(Fail):
+    pass

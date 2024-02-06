@@ -9,7 +9,7 @@ from .common import parse_int
 
 
 class LineWatcher(StreamWatcher):
-    def __init__(self, file_callback=None, progress_callback=None, line_callback=None):
+    def __init__(self, *, file_callback=None, progress_callback=None, line_callback=None):
         self.index = 0
         self.file_pattern = re.compile(r"^~([^\s]+)\s([0-9,]+)\s(.*)")
         self.percent_pattern = re.compile(r"^\s*([^\s]+)\s+([0-9\.]+)%")

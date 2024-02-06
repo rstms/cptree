@@ -28,12 +28,12 @@ def test_datadir():
 
 @pytest.fixture
 def local_src(test_datadir):
-    return test_datadir / "src/"
+    return str(test_datadir / "src") + "/"
 
 
 @pytest.fixture
 def local_dst(test_datadir):
-    return test_datadir / "dst"
+    return str(test_datadir / "dst")
 
 
 @pytest.fixture

@@ -1,80 +1,73 @@
 # generate checksum for a list of files
 
+import atexit
+import shutil
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 import click
-from fabric import Connection
 from invoke import run
 from tqdm import tqdm
 
-from .common import split_target
+from .common import host_mode, runner, split_target, which
 from .exceptions import ChecksumCompareFailed, ChecksumGenerationFailed
 from .watcher import LineWatcher
 
 
-def src_checksum(src, dst, hash, output_filename, ascii, width, count):
-    return _checksum(True, src, dst, hash, output_filename, ascii, width, count)
+def is_remote(host):
+    return bool(host)
 
 
-def dst_checksum(src, dst, hash, output_filename, ascii, width, count):
-    return _checksum(False, src, dst, hash, output_filename, ascii, width, count)
+def is_local(host):
+    return not bool(host)
 
 
-# noqa: C901
-
-
-def _checksum(is_src, src, dst, hash, output_filename, ascii, width, count):
+def checksum(target, hash, output_file, tqdm_kwargs=None, src=None, dst=None):
     """generate BSD-style checksum for each file in target, returning local file containing result"""
 
-    if is_src:
-        host, target = split_target(src)
-        mode = "source"
+    if tqdm_kwargs is None:
+        tqdm_kwargs = dict(disable=True)
+
+    host, base = split_target(target)
+    base = Path(base.rstrip("/"))
+
+    if is_local(host):
+        base = base.resolve()
+
+    if src:
+        label = "source"
+    elif dst:
+        label = "destination"
     else:
-        host, target = split_target(dst)
-        _, src_target = split_target(src)
-        # target = str(Path(target) / Path(src_target).stem)
-        mode = "destination"
+        raise RuntimeError
 
-    if host:
-        label = f"{host}:{target}"
+    click.echo(f"Generating checksums for {host_mode(host)} {label} {target}")
+
+    # try linux command without breaking
+    hash_cmd = which(hash + "sum", host, quiet=True)
+    if hash_cmd:
+        # add option if linux
+        hash_cmd += " --tag"
     else:
-        label = target
-        target = Path(target).resolve()
+        # try bsd-style hash command
+        hash_cmd = which(hash, host)
 
-    click.echo(f"Generating {mode} checksums for {label}")
+    with NamedTemporaryFile("w+", delete=False) as tempfile:
 
-    if host:
-        runner = Connection(host).run
-    else:
-        runner = run
+        with tqdm(unit=" lines", **tqdm_kwargs) as bar:
 
-    hproc = runner(f"which 2>/dev/null {hash} || which {hash}sum", hide=True, warn=True)
-    if hproc.ok:
-        hasher = hproc.stdout.strip()
-    else:
-        breakpoint()
-        pass
-    if hasher.endswith("sum"):
-        hasher += " --tag"
+            atexit.register(delete_file, tempfile.name)
 
-    options = "--progress"
-    if width:
-        options += f" --width {width}"
-    if ascii:
-        options += " --ascii"
-
-    with NamedTemporaryFile("w+", delete_on_close=False) as tempfile:
-        with tqdm(total=count, unit=" lines", miniters=1, delay=1, ncols=width, ascii=ascii) as bar:
-
-            def line_callback(line):
+            def _line(line):
                 bar.update(1)
 
-            genproc = runner(
-                f"cd {target}; find . -type f -exec {hasher} \x5c\x7b\x5c\x7d \x5c;",
+            cmd = f"cd {str(base)}; {which('find', host)} . -type f -exec {hash_cmd} \\{{\\}} \\;"
+            genproc = runner(host)(
+                cmd,
                 warn=True,
-                watchers=[LineWatcher(None, None, line_callback)],
+                watchers=[LineWatcher(line_callback=_line)],
                 hide=True,
+                in_stream=False,
                 out_stream=tempfile.file,
             )
 
@@ -82,22 +75,28 @@ def _checksum(is_src, src, dst, hash, output_filename, ascii, width, count):
                 raise ChecksumGenerationFailed(genproc.stderr)
 
         tempfile.close()
-        click.echo(f"Sorting {mode} checksums...")
-        with Path(output_filename).open("w") as ofp:
-            run(f"sort {tempfile.name}", out_stream=ofp, hide=True)
 
-    return Path(output_filename)
+        # sort checksums into output file
+        with output_file.open("w") as ofp:
+            run(f"{which('sort')} {tempfile.name}", in_stream=False, out_stream=ofp, hide=True)
+
+    return output_file
+
+
+def delete_file(filename):
+    Path(filename).unlink()
 
 
 def compare_checksums(src_sums, dst_sums):
-    """take two pathlike args, returning True if their contents are identical"""
+    """run diff on hash digest files, return length if identical, otherwise raise exception"""
 
-    result = run(f"diff {str(src_sums)} {str(dst_sums)}", hide=True, warn=True)
-    if result.failed:
-        Path(".checksums.src").write_text(Path(src_sums).read_text())
-        Path(".checksums.dst").write_text(Path(dst_sums).read_text())
-        Path(".checksums.out").write_text(result.stdout)
-        Path(".checksums.err").write_text(result.stderr)
-        raise ChecksumCompareFailed("details written to .checksums.*")
-
-    return result.ok
+    diff = run(f"{which('diff')} {str(src_sums)} {str(dst_sums)}", in_stream=False, hide=True, warn=True)
+    if diff.failed:
+        output_dir = Path(src_sums).parent
+        (output_dir / "cptree.diff.out").write_text(diff.stdout)
+        (output_dir / "cptree.diff.err").write_text(diff.stderr)
+        tempdir = TemporaryDirectory(prefix="cptree", delete=False)
+        shutil.copytree(output_dir, tempdir)
+        raise ChecksumCompareFailed("details written to {tempdir.name}")
+    wc = run(f"{which('wc')} -l {str(src_sums)}", in_stream=False, hide=True)
+    return int(wc.stdout.split()[0])

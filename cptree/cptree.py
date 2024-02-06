@@ -11,11 +11,31 @@ import click
 from invoke import run
 from tqdm import tqdm
 
-from .checksum import compare_checksums, dst_checksum, src_checksum
-from .common import parse_int
-from .exceptions import ChecksumCompareFailed, RsyncTransferFailed
+from .checksum import checksum, compare_checksums
+from .common import parse_int, which, write_file_lines
+from .exceptions import (
+    RsyncTransferFailed,
+    UnrecognizedRsyncPrescanOutput,
+    UnsupportedRsyncArgument,
+)
 from .verify import verify_dst_directory, verify_output_directory, verify_src_directory
 from .watcher import LineWatcher
+
+NAME_LENGTH = 12
+
+RESERVED_RSYNC_ARGS = [
+    "-P",
+    "--progress",
+    "--info",
+    "-i",
+    "--itemize-changes",
+    "--out-format" "--debug",
+    "--msgs2stderr",
+    "-q",
+    "--quiet",
+    "-v",
+    "--verbose",
+]
 
 
 def mkopts(kwargs):
@@ -29,9 +49,10 @@ def mkopts(kwargs):
     return opts
 
 
-def prescan(src, dst, opts):
-    click.echo("Scanning...\r", nl=False)
-    scanproc = run(f"rsync -a --list-only {opts} {src} {dst}", hide=True, warn=True)
+def prescan(src, dst, cmd, opts, file_list):
+    if not file_list:
+        click.echo("Scanning...\r", nl=False)
+    scanproc = run(f"{cmd} -a --list-only {opts} {src} {dst}", in_stream=False, hide=True, warn=True)
     if scanproc.ok:
         items = scanproc.stdout.strip().split("\n")
     else:
@@ -50,17 +71,20 @@ def prescan(src, dst, opts):
         "-": "files",
         "l": "links",
         "p": "pipes",
-        "c": "char_devs",
-        "b": "block_devs",
+        "c": "devices",
+        "b": "devices",
     }
 
     pattern = re.compile(r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s(.*)$")
     size = 0
     files = []
     for item in items:
-        fields = pattern.match(item).groups()
-        length = parse_int(fields[1])
-        size += int(length)
+        match = pattern.match(item)
+        if not match:
+            raise UnrecognizedRsyncPrescanOutput(item)
+        fields = match.groups()
+        file_length = parse_int(fields[1])
+        size += int(file_length)
         file_type = item[0]
         counts[file_type] += 1
         if file_type == "-":
@@ -71,22 +95,29 @@ def prescan(src, dst, opts):
         if v:
             details.append(f"{names[k]}={v}")
 
-    click.echo(f"Transferring {len(items)} items: [{', '.join(details)}]")
-
     if (counts["b"] + counts["c"]) > 0:
-        click.confirm(
-            "Attempting transfer of device nodes.  Are you certain you know what you're doing?",
-            abort=True,
-        )
+        if file_list:
+            click.output('WARNING: Transfer includes devices.', err=True) 
+        else:
+            click.confirm(
+                "Transfer includes devices.  Are you certain you want to proceed?",
+                abort=True,
+            )
 
-    return size, len(items), files
+    if not file_list:
+        click.echo(f"Transferring {len(items)} items: [{', '.join(details)}]")
+
+    return size, items, files
 
 
 def cptree(*args, output_dir=None, **kwargs):
     """call _cptree with work_dir from argument or a temp dir"""
 
     if output_dir:
-        kwargs["output_dir"] = Path(output_dir)
+        output_dir = Path(output_dir)
+        if not output_dir.is_dir():
+            output_dir.mkdir()
+        kwargs["output_dir"] = output_dir
         return _cptree(*args, **kwargs)
     else:
         with TemporaryDirectory() as temp_dir:
@@ -101,15 +132,26 @@ def _verify_dirs(src, dst, output_dir, create, delete):
 
 
 def _rsync_echo(cmd):
+    """return rsync command line without our added progress formatting options"""
+    hide_options = [("--info", True), ("--out-format", True), ("--progress", False)]
     words = shlex.split(cmd)
-    words.remove("-ii")
-    ipos = words.index("--info")
-    words.pop(ipos)
-    words.pop(ipos)
-    fpos = words.index("--out-format")
-    words.pop(fpos)
-    words.pop(fpos)
-    return " ".join(words)
+    for word, arg in hide_options:
+        pos = words.index(word)
+        words.pop(pos)
+        if arg:
+            words.pop(pos)
+    click.echo(shlex.join(words))
+
+
+def _check_rsync_args(args):
+    """ensure progress formatting args not present in user rsync args"""
+    if args is None:
+        return ""
+    args = shlex.split(args)
+    for reserved in RESERVED_RSYNC_ARGS:
+        if reserved in args:
+            raise UnsupportedRsyncArgument(f"{repr(reserved)} not supported in --rsync-args")
+    return shlex.join(args)
 
 
 def _cptree(  # noqa: C901
@@ -123,57 +165,63 @@ def _cptree(  # noqa: C901
     hash=None,
     rsync=True,
     rsync_args=None,
+    file_list=False,
 ):
     _verify_dirs(src, dst, output_dir, create, delete)
 
-    if rsync_args is None:
-        rsync_args = ""
+    rsync_cmd = which("rsync")
+    rsync_args = _check_rsync_args(rsync_args)
 
-    bytes, items, files = prescan(src, dst, rsync_args)
+    total_bytes, items, files = prescan(src, dst, rsync_cmd, rsync_args, file_list)
+    total_items = len(items)
 
-    file_list = output_dir / "file_list"
-    file_list.write_text("\n".join(["./" + f for f in files]) + "\n")
+    if file_list:
+        pattern = re.compile(r'\S+\s+\S+\s+\S+\s+\S+\s+(\S+)')
+        for item in items:
+            match = pattern.match(item)
+            filename = match.groups()[0]
+            click.echo(filename)
+        return 0
 
-    ascii = bool(progress == "ascii")
-    width = shutil.get_terminal_size().columns - 1
+    file_list = write_file_lines(output_dir, "cptree.files", ["./" + f for f in files])
 
-    bar = tqdm(
-        total=bytes,
-        unit="B",
-        unit_scale=True,
-        miniters=1,
-        ncols=width,
-        delay=1,
-        ascii=ascii,
+    tqdm_kwargs = dict(
+        total=total_bytes,
         disable=bool(progress in ["disable", False, None]),
+        ascii=bool(progress == "ascii"),
+        ncols=shutil.get_terminal_size().columns - 1,
+        miniters=1,
+        delay=1,
     )
 
-    def line_callback(line):
+    bar = tqdm(unit="B", unit_scale=True, **tqdm_kwargs)
+
+    def _line(line):
         click.echo(line)
 
-    def file_callback(filename, count, length, codes):
-        bar.set_description(f"[{count}/{items}]", refresh=False)
+    def _file(filename, item_count, length, codes):
+        count = str(item_count).zfill(len(str(total_items)))
+        bar.set_description(f"[{count}/{total_items}]", refresh=False)
 
-    def progress_callback(chunk, progress):
-        bar.update(chunk)
+    def _progress(bytes_read, percent):
+        bar.update(bytes_read)
 
     if progress:
-        progress_opts = "-ii --info PROGRESS2 --out-format '~%i %l %f'"
-        watcher = LineWatcher(file_callback, progress_callback, None)
+        progress_args = "--progress --info PROGRESS2 --out-format '~%i %l %f'"
+        watcher = LineWatcher(file_callback=_file, progress_callback=_progress)
     else:
-        progress_opts = ""
-        watcher = LineWatcher(None, None, line_callback)
+        progress_args = ""
+        watcher = LineWatcher(line_callback=_line)
 
     if rsync:
-        cmd = f"rsync -avz {progress_opts} {rsync_args} {src} {dst}"
 
-        # echo the rsync command without progress data output options
-        click.echo(_rsync_echo(cmd))
+        cmd = f"{rsync_cmd} -avz {rsync_args} {progress_args} {src} {dst}"
+        _rsync_echo(cmd)
 
         proc = run(
             cmd,
             watchers=[watcher],
-            in_stream=None,
+            in_stream=False,
             hide=True,
             warn=True,
         )
@@ -192,8 +240,9 @@ def _cptree(  # noqa: C901
     if proc is not None and proc.failed:
         raise RsyncTransferFailed(f"rsync failed with error code: {proc.return_code}")
 
+    tqdm_kwargs["total"] = len(files)
     if hash:
-        _verify_hashes(src, dst, hash, output_dir, ascii, width, len(files))
+        _verify_hashes(src, dst, hash, output_dir, tqdm_kwargs)
 
     if proc is None:
         return 0
@@ -201,15 +250,8 @@ def _cptree(  # noqa: C901
         return proc.return_code
 
 
-def _verify_hashes(src, dst, hash, output_dir, ascii, width, count):
-    src_sums = src_checksum(src, dst, hash, output_dir / f"src.{hash}", ascii, width, count)
-    dst_sums = dst_checksum(src, dst, hash, output_dir / f"dst.{hash}", ascii, width, count)
-    compare_checksums(src_sums, dst_sums)
-    with src_sums.open("r") as sfp:
-        ssums = len(sfp.readlines())
-    with dst_sums.open("r") as dfp:
-        dsums = len(dfp.readlines())
-    if ssums == dsums:
-        click.echo(f"\nSuccessful Transfer. Verified matching {hash.upper()} hashes on {ssums} files.\n")
-    else:
-        raise ChecksumCompareFailed(f"checksum count mismatch: src={ssums} dst={dsums}")
+def _verify_hashes(src, dst, hash, output_dir, tqdm_kwargs):
+    src_sums = checksum(src, hash, output_dir / f"cptree.src.{hash}", tqdm_kwargs, src=True)
+    dst_sums = checksum(dst, hash, output_dir / f"cptree.dst.{hash}", tqdm_kwargs, dst=True)
+    count = compare_checksums(src_sums, dst_sums)
+    click.echo(f"\nSuccessful Transfer. Verified matching {hash.upper()} hashes on {count} files.\n")

@@ -66,9 +66,9 @@ PROGRESS_CHOICES = ["enable", "ascii", "none"]
 )
 @click.option(
     "-o",
-    "--output",
+    "--output_dir",
     type=click.Path(file_okay=False, writable=True),
-    help="checksum output dir",
+    help="output directory",
 )
 @click.option(
     "-h",
@@ -85,6 +85,7 @@ PROGRESS_CHOICES = ["enable", "ascii", "none"]
     help="enable/disable rsync transfer",
 )
 @click.option("-a", "--rsync-args", help="rsync pass-through arguments")
+@click.option("-f", "--file-list", is_flag=True, help="scan only, output file list")
 @click.argument("SRC")
 @click.argument("DST")
 @click.pass_context
@@ -95,7 +96,8 @@ def cli(
     create,
     delete,
     progress,
-    output,
+    output_dir,
+    file_list,
     hash,
     rsync,
     rsync_args,
@@ -113,8 +115,12 @@ def cli(
         progress = None
 
     if src[-1] != "/":
-        if click.confirm(f"Change source to {src + '/'} ?", default="Y"):
+        if file_list:
+            click.echo(f"WARNING: changing source to {src + '/'}", err=True)
             src += "/"
+        else:
+            if click.confirm(f"Change source to {src + '/'} ?", default="Y"):
+                src += "/"
 
     return cptree(
         src,
@@ -122,10 +128,11 @@ def cli(
         create=create,
         delete=delete,
         progress=progress,
-        output_dir=output,
+        output_dir=output_dir,
         hash=hash,
         rsync=rsync,
         rsync_args=rsync_args,
+        file_list=file_list,
     )
 
 
