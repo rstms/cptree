@@ -96,7 +96,7 @@ def checksum(target, hash, output_file, tqdm_kwargs=None, rsync_args=None, src=N
 def checksum_command(base, host, exclude_filename, hash_cmd):
     cmd = f"cd {str(base)}; {which('find', host)} . -type f"
     if exclude_filename:
-        cmd += f" | {which('egrep', host)} -v -f {exclude_filename} | xargs -n 1 {hash_cmd}"
+        cmd += f" | {which('egrep', host)} -v -f {exclude_filename} | xargs -n 1 -I FILE {hash_cmd} 'FILE'"
     else:
         cmd += f" -exec {hash_cmd} \\{{\\}} \\;"
     return cmd
