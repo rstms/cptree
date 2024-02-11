@@ -3,6 +3,7 @@
 import click
 import os
 import sys
+import shutil
 from pathlib import Path
 from invoke import run
 from tqdm import tqdm
@@ -63,3 +64,34 @@ for hash in ['sha256']:
     cmd = f"cd {str(src_dir)}; find . -type f -exec {hash}sum --tag \x5c\x7b\x5c\x7d \x5c; | sort"
     proc = run(cmd)
     sumfile.write_text(proc.stdout)
+
+shared = Path('tests/data')
+shutil.rmtree(shared, ignore_errors=True)
+shutil.copytree(test_datadir, shared)
+
+exclude_patterns = [
+    'make/*',
+    'tests/*',
+    '.git/*'
+]
+
+exclude_file = shared / 'exclude_patterns'
+exclude_file.write_text('\n'.join(exclude_patterns) + '\n')
+
+# make expected results file
+cmd = f"cd {str(src_dir)}; find . -type f"
+proc = run(cmd)
+files = sorted(proc.stdout.strip().split('\n'))
+
+(shared / "expected_exclude_none").write_text('\n'.join(files) + '\n')
+
+filtered_args = [f for f in files if (f == './README.md') or (f.startswith('./docs/'))]
+args_files = [f for f in files if f not in filtered_args]
+(shared / "expected_exclude_args").write_text('\n'.join(args_files) + '\n')
+
+filtered_file = [f for f in files if f.startswith('./make/') or f.startswith('./tests/') or f.startswith('.git/')]
+file_files = [f for f in files if f not in filtered_file]
+(shared / "expected_exclude_file").write_text('\n'.join(file_files) + '\n')
+
+both_files = [f for f in files if (f not in filtered_args) and (f not in filtered_file)]
+(shared / "expected_exclude_both").write_text('\n'.join(both_files) + '\n')

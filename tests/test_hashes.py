@@ -1,12 +1,13 @@
 # hash type tests
 
-import os
 import re
 from pathlib import Path
 
 import pytest
 from fabric import Connection
 from invoke import run
+
+from cptree.cptree import cptree
 
 
 @pytest.fixture
@@ -19,16 +20,21 @@ def hashes():
     return ret
 
 
-@pytest.fixture
-def hosts():
-    return os.environ["TEST_HOSTS"].split(",")
-
-
-def test_hash_hosts(hosts, hashes, local_src):
+def test_hash_hosts(test_hosts, hashes, local_src):
     local_src = str(Path(local_src).resolve()) + "/"
-    for host in hosts:
+    for host in test_hosts:
         assert Connection(host).run("uname -a").ok
         for hash in hashes:
-            assert run(
-                f"cptree {local_src} {host}:archive/cptree_test --create=force --hash {hash} --output /tmp/test/output"
-            ).ok
+            ret = cptree(
+                local_src, f"{host}:archive/cptree_test", create="force", hash=hash, output_dir="/tmp/test/output"
+            )
+            assert ret == 0
+            """
+            cmd = (
+                f"cptree {local_src} {host}:archive/cptree_test"
+                f" --create=force --hash {hash}"
+                " --output_dir /tmp/test/output"
+            )
+            proc = run(cmd, warn=True)
+            assert proc.ok
+            """

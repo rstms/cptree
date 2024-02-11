@@ -12,11 +12,6 @@ HASH = "sha256"
 
 
 @pytest.fixture
-def output_dir(test_datadir):
-    return test_datadir / "output"
-
-
-@pytest.fixture
 def count(local_src):
     return int(subprocess.check_output(f"cd {local_src.rstrip('/')}; find . -type f | wc -l", shell=True, text=True))
 

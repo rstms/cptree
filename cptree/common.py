@@ -1,11 +1,24 @@
 # utility functions
 
+import os
+import re
 from pathlib import Path
 
 import fabric
 import invoke
 
 from .exceptions import CommandNotFound
+
+OS_COMMAND_MAP = {"which": {"linux": "which", "win": "where", "openbsd": "which"}}
+
+OS_BASE = re.compile(r"([^0-9]+)")
+
+
+def map_cmd(command):
+    platform = os.sys.platform
+    match = OS_BASE.match(platform)
+    base = match.groups()[0]
+    return OS_COMMAND_MAP[command][base]
 
 
 def split_target(target: str) -> (str, str):
@@ -21,9 +34,9 @@ def parse_int(field):
     return int(field.replace(",", ""))
 
 
-def read_file_lines(filename, strip=False):
+def read_file_lines(filename, strip=True):
     with Path(filename).open("r") as ifp:
-        for line in ifp.readline():
+        for line in ifp.readlines():
             if strip:
                 line = line.strip()
             if line:
@@ -52,7 +65,7 @@ def host_mode(host):
 
 def which(command, host=None, quiet=False):
     """return local or remote command path if valid, otherwise raise exception or optionally return None"""
-    probe = runner(host)(f"which 2>/dev/null {command}", in_stream=False, hide=True, warn=True)
+    probe = runner(host)(f"{map_cmd('which')} {command}", in_stream=False, hide=True, warn=True)
     cmd = probe.stdout.strip()
     if probe.ok and cmd:
         return cmd

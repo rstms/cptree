@@ -21,6 +21,16 @@ from .exceptions import (
 from .verify import verify_dst_directory, verify_output_directory, verify_src_directory
 from .watcher import LineWatcher
 
+FILE_PATTERN = re.compile(r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s(.*)$")
+FILE_TYPE = {
+    "d": "directories",
+    "-": "files",
+    "l": "links",
+    "p": "pipes",
+    "c": "devices",
+    "b": "devices",
+}
+
 NAME_LENGTH = 12
 
 RESERVED_RSYNC_ARGS = [
@@ -35,6 +45,16 @@ RESERVED_RSYNC_ARGS = [
     "--quiet",
     "-v",
     "--verbose",
+    "-f",
+    "-F",
+    "--filter",
+    "--include",
+    "--include-from",
+    "--files-from",
+    "-C",
+    "--cvs-exclude",
+    "-0",
+    "--from0",
 ]
 
 
@@ -49,15 +69,9 @@ def mkopts(kwargs):
     return opts
 
 
-def prescan(src, dst, cmd, opts, file_list):
-    if not file_list:
-        click.echo("Scanning...\r", nl=False)
-    scanproc = run(f"{cmd} -a --list-only {opts} {src} {dst}", in_stream=False, hide=True, warn=True)
-    if scanproc.ok:
-        items = scanproc.stdout.strip().split("\n")
-    else:
-        click.echo(scanproc.stderr, err=True)
-        sys.exit(scanproc.return_code)
+def count_items(items):
+    size = 0
+    files = []
     counts = {
         "d": 0,
         "-": 0,
@@ -66,20 +80,8 @@ def prescan(src, dst, cmd, opts, file_list):
         "c": 0,
         "b": 0,
     }
-    names = {
-        "d": "directories",
-        "-": "files",
-        "l": "links",
-        "p": "pipes",
-        "c": "devices",
-        "b": "devices",
-    }
-
-    pattern = re.compile(r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s(.*)$")
-    size = 0
-    files = []
     for item in items:
-        match = pattern.match(item)
+        match = FILE_PATTERN.match(item)
         if not match:
             raise UnrecognizedRsyncPrescanOutput(item)
         fields = match.groups()
@@ -89,25 +91,48 @@ def prescan(src, dst, cmd, opts, file_list):
         counts[file_type] += 1
         if file_type == "-":
             files.append(fields[4])
+    return size, files, counts
 
+
+def summarize_item_details(counts):
     details = []
     for k, v in counts.items():
         if v:
-            details.append(f"{names[k]}={v}")
+            details.append(f"{FILE_TYPE[k]}={v}")
+    return details
 
-    if (counts["b"] + counts["c"]) > 0:
-        if file_list:
-            click.output('WARNING: Transfer includes devices.', err=True) 
-        else:
-            click.confirm(
-                "Transfer includes devices.  Are you certain you want to proceed?",
-                abort=True,
-            )
+
+def prescan(src, dst, cmd, opts, file_list):
+    if not file_list:
+        click.echo("Scanning...\r", nl=False)
+    scanproc = run(f"{cmd} -a --list-only {opts} {src} {dst}", in_stream=False, hide=True, warn=True)
+    if scanproc.ok:
+        items = scanproc.stdout.strip().split("\n")
+    else:
+        click.echo(scanproc.stderr, err=True)
+        sys.exit(scanproc.return_code)
+
+    size, files, counts = count_items(items)
+
+    details = summarize_item_details(counts)
+
+    check_for_device_transfers(counts, file_list)
 
     if not file_list:
         click.echo(f"Transferring {len(items)} items: [{', '.join(details)}]")
 
     return size, items, files
+
+
+def check_for_device_transfers(counts, file_list):
+    if (counts["b"] + counts["c"]) > 0:
+        if file_list:
+            click.output("WARNING: Transfer includes devices.", err=True)
+        else:
+            click.confirm(
+                "Transfer includes devices.  Are you certain you want to proceed?",
+                abort=True,
+            )
 
 
 def cptree(*args, output_dir=None, **kwargs):
@@ -176,7 +201,7 @@ def _cptree(  # noqa: C901
     total_items = len(items)
 
     if file_list:
-        pattern = re.compile(r'\S+\s+\S+\s+\S+\s+\S+\s+(\S+)')
+        pattern = re.compile(r"\S+\s+\S+\s+\S+\s+\S+\s+(\S+)")
         for item in items:
             match = pattern.match(item)
             filename = match.groups()[0]
@@ -242,7 +267,7 @@ def _cptree(  # noqa: C901
 
     tqdm_kwargs["total"] = len(files)
     if hash:
-        _verify_hashes(src, dst, hash, output_dir, tqdm_kwargs)
+        _verify_hashes(src, dst, hash, output_dir, tqdm_kwargs, rsync_args)
 
     if proc is None:
         return 0
@@ -250,8 +275,8 @@ def _cptree(  # noqa: C901
         return proc.return_code
 
 
-def _verify_hashes(src, dst, hash, output_dir, tqdm_kwargs):
-    src_sums = checksum(src, hash, output_dir / f"cptree.src.{hash}", tqdm_kwargs, src=True)
-    dst_sums = checksum(dst, hash, output_dir / f"cptree.dst.{hash}", tqdm_kwargs, dst=True)
+def _verify_hashes(src, dst, hash, output_dir, tqdm_kwargs, rsync_args):
+    src_sums = checksum(src, hash, output_dir / f"cptree.src.{hash}", tqdm_kwargs, rsync_args, src=True)
+    dst_sums = checksum(dst, hash, output_dir / f"cptree.dst.{hash}", tqdm_kwargs, rsync_args, dst=True)
     count = compare_checksums(src_sums, dst_sums)
     click.echo(f"\nSuccessful Transfer. Verified matching {hash.upper()} hashes on {count} files.\n")

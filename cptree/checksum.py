@@ -10,7 +10,12 @@ from invoke import run
 from tqdm import tqdm
 
 from .common import host_mode, runner, split_target, which
-from .exceptions import ChecksumCompareFailed, ChecksumGenerationFailed
+from .exceptions import (
+    ChecksumCompareFailed,
+    ChecksumExcludeFileGenerationFailed,
+    ChecksumGenerationFailed,
+)
+from .exclude import rsync_exclude_patterns
 from .watcher import LineWatcher
 
 
@@ -22,7 +27,7 @@ def is_local(host):
     return not bool(host)
 
 
-def checksum(target, hash, output_file, tqdm_kwargs=None, src=None, dst=None):
+def checksum(target, hash, output_file, tqdm_kwargs=None, rsync_args=None, src=None, dst=None):
     """generate BSD-style checksum for each file in target, returning local file containing result"""
 
     if tqdm_kwargs is None:
@@ -52,6 +57,8 @@ def checksum(target, hash, output_file, tqdm_kwargs=None, src=None, dst=None):
         # try bsd-style hash command
         hash_cmd = which(hash, host)
 
+    exclude_filename = generate_exclude_file(host, rsync_args)
+
     with NamedTemporaryFile("w+", delete=False) as tempfile:
 
         with tqdm(unit=" lines", **tqdm_kwargs) as bar:
@@ -61,7 +68,7 @@ def checksum(target, hash, output_file, tqdm_kwargs=None, src=None, dst=None):
             def _line(line):
                 bar.update(1)
 
-            cmd = f"cd {str(base)}; {which('find', host)} . -type f -exec {hash_cmd} \\{{\\}} \\;"
+            cmd = checksum_command(base, host, exclude_filename, hash_cmd)
             genproc = runner(host)(
                 cmd,
                 warn=True,
@@ -76,11 +83,42 @@ def checksum(target, hash, output_file, tqdm_kwargs=None, src=None, dst=None):
 
         tempfile.close()
 
+        if exclude_filename:
+            delete_exclude_file(host, exclude_filename)
+
         # sort checksums into output file
         with output_file.open("w") as ofp:
             run(f"{which('sort')} {tempfile.name}", in_stream=False, out_stream=ofp, hide=True)
 
     return output_file
+
+
+def checksum_command(base, host, exclude_filename, hash_cmd):
+    cmd = f"cd {str(base)}; {which('find', host)} . -type f"
+    if exclude_filename:
+        cmd += f" | {which('egrep', host)} -v -f {exclude_filename} | xargs -n 1 {hash_cmd}"
+    else:
+        cmd += f" -exec {hash_cmd} \\{{\\}} \\;"
+    return cmd
+
+
+def generate_exclude_file(host, rsync_args):
+    patterns = rsync_exclude_patterns(rsync_args)
+    if not patterns:
+        return ""
+    with NamedTemporaryFile("w+", delete=False) as tempfile:
+        tempfile.file.write("\n".join(patterns) + "\n")
+        tempfile.close()
+        cmd = "TEMPFILE=$(mktemp) && cat ->$TEMPFILE && echo $TEMPFILE"
+        with Path(tempfile.name).open("r") as ifp:
+            proc = runner(host)(cmd, in_stream=ifp, warn=True, hide=True)
+        if proc.failed:
+            raise ChecksumExcludeFileGenerationFailed(proc.stderr)
+        return proc.stdout.strip()
+
+
+def delete_exclude_file(host, filename):
+    runner(host)(f"rm {filename}", hide=True)
 
 
 def delete_file(filename):
@@ -96,7 +134,7 @@ def compare_checksums(src_sums, dst_sums):
         (output_dir / "cptree.diff.out").write_text(diff.stdout)
         (output_dir / "cptree.diff.err").write_text(diff.stderr)
         tempdir = TemporaryDirectory(prefix="cptree", delete=False)
-        shutil.copytree(output_dir, tempdir)
-        raise ChecksumCompareFailed("details written to {tempdir.name}")
+        shutil.copytree(output_dir, Path(tempdir.name), dirs_exist_ok=True)
+        raise ChecksumCompareFailed(f"details written to {tempdir.name}")
     wc = run(f"{which('wc')} -l {str(src_sums)}", in_stream=False, hide=True)
     return int(wc.stdout.split()[0])

@@ -31,3 +31,7 @@ class UnsupportedRsyncArgument(Fail):
 
 class UnrecognizedRsyncPrescanOutput(Fail):
     pass
+
+
+class ChecksumExcludeFileGenerationFailed(Fail):
+    pass
