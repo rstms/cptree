@@ -62,3 +62,26 @@ rsync interface adding total transfer progress and redundant cryptographic hash 
      -r, --rsync / -R, --no-rsync    enable/disable rsync transfer
      -a, --rsync-args TEXT           rsync pass-through arguments
      --help                          Show this message and exit.
+
+.. code-block::
+
+   Usage: cptree [OPTIONS] SRC DST
+
+     rsync transfer with progress indicator and checksum verification
+
+   Options:
+     --version                       Show the version and exit.
+     -d, --debug                     debug mode
+     --shell-completion TEXT         configure shell completion
+     -c, --create [ask|force|never]  create destination directory if nonexistent
+     -D, --delete [ask|force|never|force-no-countdown]
+                                     delete destination directory before transfer
+     -p, --progress [enable|ascii|none]
+                                     total transfer progress
+     -o, --output_dir DIRECTORY      output directory
+     -h, --hash [md5|sha1|sha256|sha512|none]
+                                     select checksum hash
+     -r, --rsync / -R, --no-rsync    enable/disable rsync transfer
+     -a, --rsync-args TEXT           rsync pass-through arguments
+     -f, --file-list                 scan only, output file list
+     --help                          Show this message and exit.

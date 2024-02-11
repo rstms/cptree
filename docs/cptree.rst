@@ -52,6 +52,14 @@ cptree.exceptions module
    :undoc-members:
    :show-inheritance:
 
+cptree.exclude module
+---------------------
+
+.. automodule:: cptree.exclude
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 cptree.progress module
 ----------------------
 
