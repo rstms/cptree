@@ -9,7 +9,7 @@ import invoke
 
 from .exceptions import CommandNotFound
 
-OS_COMMAND_MAP = {"which": {"linux": "which", "win": "where", "openbsd": "which"}}
+OS_COMMAND_MAP = {"which": {"linux": "which", "win": "where", "openbsd": "which", "cygwin": "which"}}
 
 OS_BASE = re.compile(r"([^0-9]+)")
 
