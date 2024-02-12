@@ -3,7 +3,7 @@
 import atexit
 import shutil
 from pathlib import Path
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+from tempfile import NamedTemporaryFile, mkdtemp
 
 import click
 from invoke import run
@@ -133,8 +133,8 @@ def compare_checksums(src_sums, dst_sums):
         output_dir = Path(src_sums).parent
         (output_dir / "cptree.diff.out").write_text(diff.stdout)
         (output_dir / "cptree.diff.err").write_text(diff.stderr)
-        tempdir = TemporaryDirectory(prefix="cptree", delete=False)
-        shutil.copytree(output_dir, Path(tempdir.name), dirs_exist_ok=True)
-        raise ChecksumCompareFailed(f"details written to {tempdir.name}")
+        tempdir = mkdtemp(prefix="cptree")
+        shutil.copytree(output_dir, tempdir.name, dirs_exist_ok=True)
+        raise ChecksumCompareFailed(f"details written to {tempdir}")
     wc = run(f"{which('wc')} -l {str(src_sums)}", in_stream=False, hide=True)
     return int(wc.stdout.split()[0])
