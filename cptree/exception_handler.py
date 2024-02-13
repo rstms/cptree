@@ -17,7 +17,7 @@ def exception_handler(
 ):
     logger = ExceptionHandler.logger
 
-    elist = format_exception(exception)
+    elist = format_exception(exception_type, exception, traceback)
     traceback_msg = "".join(elist[:-1]).rstrip("\n")
     error_msg = elist[-1].rstrip("\n")
 
