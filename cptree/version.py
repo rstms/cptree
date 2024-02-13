@@ -1,4 +1,4 @@
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 __author__ = "Matt Krueger"
 __email__ = "mkrueger@rstms.net"
-__timestamp__ = "2024-02-13 13:37:22-07:00"
+__timestamp__ = "2024-02-13 15:00:35-07:00"
